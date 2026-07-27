@@ -37,6 +37,7 @@ def get_Pareto_front(Y):
 class TestOptimization(unittest.TestCase):
     def test_bisego_composite(self):
         bproblem = get_problem("ZDT1")
+        bproblem.set_dim(2)
 
         num_obj=bproblem.num_obj
         num_cstr=bproblem.num_cstr
@@ -107,6 +108,7 @@ class TestOptimization(unittest.TestCase):
 
     def test_bisego_composite_normalized(self):
         bproblem = get_problem("ZDT1")
+        bproblem.set_dim(2)
 
         num_obj=bproblem.num_obj
         num_cstr=bproblem.num_cstr
@@ -176,6 +178,7 @@ class TestOptimization(unittest.TestCase):
 
     def test_bisego_naive(self):
         bproblem = get_problem("ZDT1")
+        bproblem.set_dim(2)
 
         num_obj=bproblem.num_obj
         num_cstr=bproblem.num_cstr

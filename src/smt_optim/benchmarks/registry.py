@@ -21,8 +21,6 @@ from .misc import mf_borehole
 from .misc import misc2
 from .misc import weldedbeam_variants
 
-from .misc import zdt
-
 
 available = {}
 
@@ -52,8 +50,6 @@ _register_from_module(mf_colville)
 _register_from_module(mf_borehole)
 _register_from_module(misc2)
 _register_from_module(weldedbeam_variants)
-
-_register_from_module(zdt)
 
 
 
