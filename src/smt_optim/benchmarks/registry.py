@@ -52,7 +52,6 @@ _register_from_module(misc2)
 _register_from_module(weldedbeam_variants)
 
 
-
 # def list_problems(**criteria):
 #
 #     results = []

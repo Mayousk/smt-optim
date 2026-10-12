@@ -1,7 +1,9 @@
 import unittest
 import numpy as np
 
-from smt_optim.acquisition_functions.composite_expected_improvement import init_bi_obj_composite_ei
+from smt_optim.acquisition_functions.composite_expected_improvement import (
+    init_bi_obj_composite_ei,
+)
 
 
 class DummyModel:

@@ -1,59 +1,75 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy import optimize as so, stats as stats
+from scipy import stats
+from scipy.stats import norm
 
+from smt.surrogate_models import KRG
 from smt_optim.acquisition_functions import log_ei
+from smt_optim.acquisition_functions.composite_expected_improvement import (
+    init_bi_obj_composite_ei,
+)
 from smt_optim.acquisition_strategies import AcquisitionStrategy
-
 from smt_optim.core.state import State
-
-from smt_optim.utils.get_fmin import get_fmin
-
 from smt_optim.subsolvers import multistart_minimize
 
-from smt_optim.acquisition_functions.composite_expected_improvement import init_bi_obj_composite_ei
 
-from scipy.stats import norm
-from smt.surrogate_models import KRG
+def dominates(p, q):
+    """Return True if point p strictly dominates point q, else False."""
+    return (p[0] <= q[0] and p[1] < q[1]) or (p[0] < q[0] and p[1] <= q[1])
 
-def Dominates(p,q):
-    #Returns True if point p strictly dominates point q, else returns False
-    return (p[0]<=q[0] and p[1]<q[1]) or (p[0]<q[0] and p[1]<=q[1])
 
-def ParetoFront(D,Y):
-    #Given a DoE (D,Y), returns the list of indices of non-dominated points, sorted by ascending value of f1
-    t=len(D)
-    front=[]
+def pareto_front(d, y):
+    """Given a DoE (d, y), return the list of indices of non-dominated points sorted by ascending f1."""
+    t = len(d)
+    front = []
     for i in range(t):
-        if all([not Dominates(q,Y[i]) for q in Y]):
-            front.append((Y[i][0],i))
+        if all(not dominates(q, y[i]) for q in y):
+            front.append((y[i][0], i))
     front.sort()
     return [p[1] for p in front]
 
-def PositivePart(x):
-    return max(x,0)
 
-def SingleObjectiveNormalized(y,r,s=None):
-    #Returns a single-objective normalized formulation of the problem
-    if s==None:
-        s=[1]*len(y)
-    return max((y[i]-r[i])/s[i] for i in range(len(y)))
+def positive_part(x):
+    """Return max(x, 0)."""
+    return max(x, 0.0)
 
-def SingleObjectiveProduct(y,r):
-    #Returns a single objective product formulation of the problem
-    return -np.prod([PositivePart(r[i]-y[i])**2 for i in range(len(y))])
 
-def Norm(p):
-    #Returns the 2-norm of a point
-    return np.sqrt(sum(x**2 for x in p))
+def single_objective_normalized(y, r, s=None):
+    """Return single-objective normalized formulation."""
+    if s is None:
+        s = [1.0] * len(y)
+    return max((y[i] - r[i]) / s[i] for i in range(len(y)))
 
-def Dist(p,q):
-    #Returns the distance between two points
-    return Norm([p[i]-q[i] for i in range(len(p))])
 
-def DistToNeighbors(p1,p2,p3,w):
-    #Returns the sum of squared distances from p2 to its neighbors p1 and p3 on the Pareto front, coefficiented by the Weight.
-    return (Dist(p1,p2)**2+Dist(p2,p3)**2)/(w+1)
+def single_objective_product(y, r):
+    """Return single-objective product formulation."""
+    return -float(np.prod([positive_part(r[i] - y[i]) ** 2 for i in range(len(y))]))
+
+
+def norm_2(p):
+    """Return 2-norm of point p."""
+    return float(np.sqrt(sum(x**2 for x in p)))
+
+
+def dist(p, q):
+    """Return Euclidean distance between two points."""
+    return norm_2([p[i] - q[i] for i in range(len(p))])
+
+
+def dist_to_neighbors(p1, p2, p3, w):
+    """Return sum of squared distances from p2 to neighbors p1 and p3, weighted by w."""
+    return (dist(p1, p2) ** 2 + dist(p2, p3) ** 2) / (w + 1)
+
+
+# Backward compatibility aliases
+Dominates = dominates
+ParetoFront = pareto_front
+PositivePart = positive_part
+SingleObjectiveNormalized = single_objective_normalized
+SingleObjectiveProduct = single_objective_product
+Norm = norm_2
+Dist = dist
+DistToNeighbors = dist_to_neighbors
+
 
 class BiSEGO(AcquisitionStrategy):
     """
@@ -99,7 +115,7 @@ class BiSEGO(AcquisitionStrategy):
         Choice of single-objective formulation. "Product" or "Normalized". The normalized
         scalarisation is not compatible with the naive approach.
         Default is "Product".
-    
+
     single_obj_max_calls : int, optional
         Maximum number of calls using the same single-objective formulation
         Default is 'self.n_multi_start'.
@@ -117,175 +133,212 @@ class BiSEGO(AcquisitionStrategy):
         Default is False
 
     """
+
     def __init__(self, state: State, **kwargs):
         super().__init__()
 
-
-        self.acq_func1 = kwargs.get("acq_func", log_ei) #Acquisition function for min(f1) (to be modified to take only f1 as a parameter)
-        self.acq_func2 = kwargs.get("acq_func", log_ei) #Acquisition function for min(f2) (same for f2)
-        self.acq_func_gen3 = kwargs.get("acq_func_bi", init_bi_obj_composite_ei) #Composite acquisition function for min(f1,f2)
+        self.acq_func1 = kwargs.get("acq_func", log_ei)
+        self.acq_func2 = kwargs.get("acq_func", log_ei)
+        self.acq_func_gen3 = kwargs.get("acq_func_bi", init_bi_obj_composite_ei)
         self.n_multi_start = kwargs.pop("n_multi_start", 10)
-        self.n_accuracy = kwargs.pop("n_accuracy",100)
+        self.n_accuracy = kwargs.pop("n_accuracy", 100)
         self.sp_method = kwargs.pop("sp_method", "Cobyla")
         self.sp_tol = kwargs.pop("sp_tol", np.sqrt(np.finfo(float).eps))
-        self.soformulation=kwargs.pop("so_formulation","Product")
+        self.so_formulation = kwargs.pop(
+            "so_formulation", kwargs.pop("soformulation", "Product")
+        )
         self.current_calls = 0
         self.current_subcalls = 0
-        self.single_obj_max_calls = kwargs.pop("single_obj_max_calls",self.n_multi_start)
-        self.init_calls = kwargs.pop("init_calls",self.n_multi_start)
-        self.acq_func_gen1 = lambda state,kwargs : lambda x : self.acq_func1(state.obj_models[0].predict_values(x),state.obj_models[0].predict_variances(x),min(state.scaled_dataset.export_data([0],0)))[0][0]
-        self.acq_func_gen2 = lambda state,kwargs : lambda x : self.acq_func2(state.obj_models[1].predict_values(x),state.obj_models[1].predict_variances(x),min(state.scaled_dataset.export_data([1],0)))[0][0]
-        self.naive = kwargs.pop("naive",False)
-        self.verbose = kwargs.pop("verbose",False)
+        self.single_obj_max_calls = kwargs.pop(
+            "single_obj_max_calls", self.n_multi_start
+        )
+        self.init_calls = kwargs.pop("init_calls", self.n_multi_start)
+        self.acq_func_gen1 = lambda state, kwargs: (
+            lambda x: float(
+                np.asarray(
+                    self.acq_func1(
+                        state.obj_models[0].predict_values(x),
+                        state.obj_models[0].predict_variances(x),
+                        float(np.min(state.scaled_dataset.export_data([0], 0))),
+                    )
+                ).ravel()[0]
+            )
+        )
+        self.acq_func_gen2 = lambda state, kwargs: (
+            lambda x: float(
+                np.asarray(
+                    self.acq_func2(
+                        state.obj_models[1].predict_values(x),
+                        state.obj_models[1].predict_variances(x),
+                        float(np.min(state.scaled_dataset.export_data([1], 0))),
+                    )
+                ).ravel()[0]
+            )
+        )
+        self.naive = kwargs.pop("naive", False)
+        self.verbose = kwargs.pop("verbose", False)
 
         self.r = None
         self.state = state
         self.X = None
         self.W = None
 
-
     def validate_config(self, state):
         pass
 
     def get_scaled_DoE(self):
-        Y=self.state.scaled_dataset.export_as_dict()["obj"]
-        D=self.state.scaled_dataset.export_as_dict()["x"]
-        return (D,Y)
+        Y = self.state.scaled_dataset.export_as_dict()["obj"]
+        D = self.state.scaled_dataset.export_as_dict()["x"]
+        return (D, Y)
 
     def get_DoE(self):
-        Y=self.state.dataset.export_as_dict()["obj"]
-        D=self.state.dataset.export_as_dict()["x"]
-        return (D,Y)
-    
+        Y = self.state.dataset.export_as_dict()["obj"]
+        D = self.state.dataset.export_as_dict()["x"]
+        return (D, Y)
+
     def get_pareto_front(self):
-        D,Y=self.get_scaled_DoE()
-        self.X = ParetoFront(D,Y)
+        D, Y = self.get_scaled_DoE()
+        self.X = pareto_front(D, Y)
 
     def select_reference_point(self):
         self.get_pareto_front()
-        J=len(self.X)
-        D,Y=self.get_scaled_DoE()
-        X=self.X
-        W=self.W
-        if J>2:
-            #Select a point of the Pareto front relatively far from its neighbors
-            j=max((DistToNeighbors(Y[X[k-1]],Y[X[k]],Y[X[k+1]],W[X[k]]),k) for k in range(1,J-1))[1]
-            r=(Y[X[j+1]][0],Y[X[j-1]][1])
-        elif J==2:
-            j=1
-            r=(Y[X[1]][0],Y[X[0]][1])
-        elif J==1:
+        J = len(self.X)
+        D, Y = self.get_scaled_DoE()
+        X = self.X
+        W = self.W
+        if J > 2:
+            # Select a point of the Pareto front relatively far from its neighbors
+            j = max(
+                (dist_to_neighbors(Y[X[k - 1]], Y[X[k]], Y[X[k + 1]], W[X[k]]), k)
+                for k in range(1, J - 1)
+            )[1]
+            r = (Y[X[j + 1]][0], Y[X[j - 1]][1])
+        elif J == 2:
+            j = 1
+            r = (Y[X[1]][0], Y[X[0]][1])
+        elif J == 1:
             return None
         else:
             raise ValueError("The Pareto Front is empty")
-        self.W[X[j]]+=1
+        self.W[X[j]] += 1
         return r
 
     def get_infill(self, state):
-        old_pareto_front=self.X
+        old_pareto_front = self.X
         self.get_pareto_front()
 
         if self.current_calls == 0:
             if self.current_calls < self.init_calls and self.verbose:
                 print("Min(f1) phase")
-            self.W = [0 for x in range(len(self.state.dataset.export_as_dict()["x"]))]
+            self.W = [0 for _ in range(len(self.state.dataset.export_as_dict()["x"]))]
 
         # Pre-treatment phase : find min(f1) and min(f2)
         if self.current_calls < self.init_calls:
-            self.current_calls+=1
+            self.current_calls += 1
             self.W.append(0)
-            return self.get_infill_custom(state,self.acq_func_gen1)
-        elif self.current_calls < 2*self.init_calls:
-            if self.current_calls==self.init_calls and self.verbose:
+            return self.get_infill_custom(state, self.acq_func_gen1)
+        elif self.current_calls < 2 * self.init_calls:
+            if self.current_calls == self.init_calls and self.verbose:
                 print("Min(f2) phase")
-            self.current_calls+=1
+            self.current_calls += 1
             self.W.append(0)
-            return self.get_infill_custom(state,self.acq_func_gen2)
+            return self.get_infill_custom(state, self.acq_func_gen2)
 
         # Main loop
         else:
-            if self.current_calls == 2*self.init_calls or self.current_subcalls == 0 or self.current_subcalls == self.single_obj_max_calls or old_pareto_front!=self.X :
+            if (
+                self.current_calls == 2 * self.init_calls
+                or self.current_subcalls == 0
+                or self.current_subcalls == self.single_obj_max_calls
+                or old_pareto_front != self.X
+            ):
                 if self.verbose:
                     print("The Pareto front is of length", len(self.X))
                 self.current_subcalls = 0
-                r=self.select_reference_point()
-                if r==None: # edge case where there is only one point in the Pareto Front
-                    self.current_subcalls+=1
-                    self.current_calls+=1
+                r = self.select_reference_point()
+                if (
+                    r is None
+                ):  # edge case where there is only one point in the Pareto Front
+                    self.current_subcalls += 1
+                    self.current_calls += 1
                     self.W.append(0)
-                    if self.current_calls%2:
-                        return self.get_infill_custom(state,self.acq_func_gen1)
+                    if self.current_calls % 2:
+                        return self.get_infill_custom(state, self.acq_func_gen1)
                     else:
-                        return self.get_infill_custom(state,self.acq_func_gen2)
+                        return self.get_infill_custom(state, self.acq_func_gen2)
                 if self.verbose:
-                    print("Bi-objective phase with r =",r)
-                if self.soformulation=="Normalized":
-                    self.phi = lambda y: SingleObjectiveNormalized(y,r)
-                elif self.soformulation=="Product":
-                    self.phi = lambda y: SingleObjectiveProduct(y,r)
+                    print("Bi-objective phase with r =", r)
+                if self.so_formulation == "Normalized":
+                    self.phi = lambda y: single_objective_normalized(y, r)
+                elif self.so_formulation == "Product":
+                    self.phi = lambda y: single_objective_product(y, r)
                 else:
-                    raise ValueError("Unknown single-objective formulation")
-            self.current_subcalls+=1
-            self.current_calls+=1
+                    raise ValueError(
+                        f"Unknown single-objective formulation: {self.so_formulation}"
+                    )
+            self.current_subcalls += 1
+            self.current_calls += 1
             self.W.append(0)
 
             if not self.naive:
-                return self.get_infill_custom(state,self.acq_func_gen3,phi=self.phi,n_accuracy=self.n_accuracy)
+                return self.get_infill_custom(
+                    state, self.acq_func_gen3, phi=self.phi, n_accuracy=self.n_accuracy
+                )
             else:
-                return self.get_infill_naive(state,self.phi)
+                return self.get_infill_naive(state, self.phi)
 
-    def get_infill_custom(self,state,acq_func_gen,**kwargs):
+    def get_infill_custom(self, state, acq_func_gen, **kwargs):
         # Gets the infill point using the custom acquisition function provided
         self.seed = state.iter
+        kwargs["seed"] = self.seed
 
         sampler = stats.qmc.LatinHypercube(d=state.problem.num_dim, rng=state.iter)
         multi_x0 = sampler.random(self.n_multi_start)
 
-        ac_func = acq_func_gen(state,kwargs)
+        ac_func = acq_func_gen(state, kwargs)
 
         def sp_wrapper(x):
             x = x.reshape(1, -1)
             return -ac_func(x)
 
-        res = multistart_minimize(sp_wrapper,
-                                    bounds=np.array([[0, 1]] * state.problem.num_dim),
-                                    constraints=[],
-                                    n_start=self.n_multi_start,
-                                    multi_x0=multi_x0,
-                                    seed=self.seed,
-                                    tol=self.sp_tol,
-                                    method=self.sp_method, )
+        res = multistart_minimize(
+            sp_wrapper,
+            bounds=np.array([[0, 1]] * state.problem.num_dim),
+            constraints=[],
+            n_start=self.n_multi_start,
+            multi_x0=multi_x0,
+            seed=self.seed,
+            tol=self.sp_tol,
+            method=self.sp_method,
+        )
 
         next_x = res.x
         infill = [next_x.reshape(1, -1)]
 
         return infill
 
-    def get_infill_naive(self,state,phi):
-        #TODO: refactor to use already defined functions
-
-        D,Y=self.get_scaled_DoE()
-        Phi_values=[phi(y) for y in Y]
+    def get_infill_naive(self, state, phi):
+        D, Y = self.get_scaled_DoE()
+        Phi_values = np.array([phi(y) for y in Y])
 
         # 1. Train model on DoE
-        # Initialize the model
         sm = KRG(print_global=False)
-        sm.set_training_values(np.atleast_1d(D), np.atleast_1d(Phi_values))
+        sm.set_training_values(np.atleast_2d(D), Phi_values.reshape(-1, 1))
         sm.train()
 
-        # Find the current minimum value in the observation history
-        current_best = np.min(Y)
+        # Find the current minimum value in the scalarized history
+        current_best = float(np.min(Phi_values))
 
         # Define the negative log Expected Improvement to minimize
-        def log_ei(x):
+        def log_ei_fn(x):
             x_reshaped = np.atleast_2d(x)
             mu = sm.predict_values(x_reshaped)[0, 0]
             sigma2 = sm.predict_variances(x_reshaped)[0, 0]
-            sigma = np.sqrt(max(sigma2, 1e-12))
+            sigma = np.sqrt(max(sigma2, 1e-16))
             improvement = current_best - mu
             z = improvement / sigma
             ei = improvement * norm.cdf(z) + sigma * norm.pdf(z)
-            return np.log(max(ei, 1e-12))
+            return np.log(max(ei, 1e-16))
 
         # 2. Find maximum of log_EI acquisition function
         self.seed = state.iter
@@ -295,19 +348,20 @@ class BiSEGO(AcquisitionStrategy):
 
         def sp_wrapper(x):
             x = x.reshape(1, -1)
-            return -log_ei(x)
+            return -log_ei_fn(x)
 
-        res = multistart_minimize(sp_wrapper,
-                                    bounds=np.array([[0, 1]] * state.problem.num_dim),
-                                    constraints=[],
-                                    n_start=self.n_multi_start,
-                                    multi_x0=multi_x0,
-                                    seed=self.seed,
-                                    tol=self.sp_tol,
-                                    method=self.sp_method, )
+        res = multistart_minimize(
+            sp_wrapper,
+            bounds=np.array([[0, 1]] * state.problem.num_dim),
+            constraints=[],
+            n_start=self.n_multi_start,
+            multi_x0=multi_x0,
+            seed=self.seed,
+            tol=self.sp_tol,
+            method=self.sp_method,
+        )
 
         next_x = res.x
         infill = [next_x.reshape(1, -1)]
 
         return infill
-    
