@@ -8,6 +8,7 @@ from .fidelity_correlation import fidelity_correlation
 from .integrated_variance_reduction import integrated_variance_reduction
 from .ehvi import init_ehvi_2o
 from .mpi import init_mpi
+from .composite_expected_improvement import init_bi_obj_composite_ei
 
 __all__ = [
     "expected_improvement",
@@ -20,4 +21,5 @@ __all__ = [
     "integrated_variance_reduction",
     "init_ehvi_2o",
     "init_mpi",
+    "init_bi_obj_composite_ei",
 ]
