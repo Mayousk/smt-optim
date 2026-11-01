@@ -9,6 +9,7 @@ from .integrated_variance_reduction import integrated_variance_reduction
 from .ehvi import init_ehvi_2o
 from .mpi import init_mpi
 from .composite_expected_improvement import init_bi_obj_composite_ei
+from .mean_ivr import mean_ivr, vec_mean_ivr
 
 __all__ = [
     "expected_improvement",
@@ -22,4 +23,6 @@ __all__ = [
     "init_ehvi_2o",
     "init_mpi",
     "init_bi_obj_composite_ei",
+    "mean_ivr",
+    "vec_mean_ivr",
 ]
