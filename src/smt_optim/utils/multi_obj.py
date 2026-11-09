@@ -333,7 +333,7 @@ class PymooStateWrapper(PymooProblem):
                     if not np.isnan(self.ineq_bounds[g_idx, 0]):
                         g_lower[:, g_idx] = self.ineq_bounds[g_idx, 0] - g_vals
 
-                    elif not np.isnan(self.ineq_bounds[g_idx, 1]):
+                    if not np.isnan(self.ineq_bounds[g_idx, 1]):
                         g_upper[:, g_idx] = g_vals - self.ineq_bounds[g_idx, 1]
 
                 out["G"] = np.hstack(
